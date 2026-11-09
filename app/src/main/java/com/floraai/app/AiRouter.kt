@@ -15,7 +15,10 @@ import java.util.concurrent.TimeUnit
 object AiRouter {
 
     private val client = OkHttpClient.Builder()
-        .callTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(150, TimeUnit.SECONDS)
         .build()
 
     private val jsonType = "application/json".toMediaType()
@@ -44,38 +47,52 @@ object AiRouter {
             }
 
             if (errors.isEmpty()) {
-                "No API key found. Open Settings and save a Gemini, Groq or OpenRouter key."
+                "No API key found. Open Settings and save an API key."
             } else {
-                "All AI providers failed:\n\n" + errors.joinToString("\n\n")
+                "All AI providers failed:\n\n" +
+                    errors.joinToString("\n\n")
             }
         }
 
-    private fun askGemini(key: String, prompt: String): String {
+    private fun askGemini(
+        key: String,
+        prompt: String
+    ): String {
+
         val body = JSONObject().apply {
-            put("contents", JSONArray().put(
-                JSONObject().put(
-                    "parts",
-                    JSONArray().put(JSONObject().put("text", prompt))
+            put(
+                "contents",
+                JSONArray().put(
+                    JSONObject().put(
+                        "parts",
+                        JSONArray().put(
+                            JSONObject().put("text", prompt)
+                        )
+                    )
                 )
-            ))
+            )
         }
 
         val request = Request.Builder()
             .url(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
-)
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+            )
             .addHeader("x-goog-api-key", key)
             .post(body.toString().toRequestBody(jsonType))
             .build()
 
         return client.newCall(request).execute().use { response ->
+
             val responseText = response.body?.string().orEmpty()
 
             if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code}: $responseText")
+                throw IOException(
+                    "HTTP ${response.code}: $responseText"
+                )
             }
 
             val result = JSONObject(responseText)
+
             result.getJSONArray("candidates")
                 .getJSONObject(0)
                 .getJSONObject("content")
@@ -85,7 +102,10 @@ object AiRouter {
         }
     }
 
-    private fun askGroq(key: String, prompt: String): String {
+    private fun askGroq(
+        key: String,
+        prompt: String
+    ): String {
         return askOpenAiCompatible(
             "https://api.groq.com/openai/v1/chat/completions",
             key,
@@ -94,7 +114,10 @@ object AiRouter {
         )
     }
 
-    private fun askOpenRouter(key: String, prompt: String): String {
+    private fun askOpenRouter(
+        key: String,
+        prompt: String
+    ): String {
         return askOpenAiCompatible(
             "https://openrouter.ai/api/v1/chat/completions",
             key,
@@ -109,13 +132,18 @@ object AiRouter {
         model: String,
         prompt: String
     ): String {
+
         val body = JSONObject().apply {
             put("model", model)
-            put("messages", JSONArray().put(
-                JSONObject()
-                    .put("role", "user")
-                    .put("content", prompt)
-            ))
+
+            put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", prompt)
+                )
+            )
         }
 
         val request = Request.Builder()
@@ -125,13 +153,17 @@ object AiRouter {
             .build()
 
         return client.newCall(request).execute().use { response ->
+
             val responseText = response.body?.string().orEmpty()
 
             if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code}: $responseText")
+                throw IOException(
+                    "HTTP ${response.code}: $responseText"
+                )
             }
 
             val result = JSONObject(responseText)
+
             result.getJSONArray("choices")
                 .getJSONObject(0)
                 .getJSONObject("message")
