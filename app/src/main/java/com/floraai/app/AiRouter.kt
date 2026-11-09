@@ -1,64 +1,62 @@
 package com.floraai.app
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 object AiRouter {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(150, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
         .build()
 
-    private val jsonType = "application/json".toMediaType()
+    fun generate(context: Context, prompt: String): String {
+        val errors = mutableListOf<String>()
 
-    suspend fun generate(context: Context, prompt: String): String =
-        withContext(Dispatchers.IO) {
+        val providers = listOf("gemini", "groq", "openrouter")
 
-            val providers = listOf("gemini", "groq", "openrouter")
-            val errors = mutableListOf<String>()
+        for (provider in providers) {
+            val key = KeyVault.get(context, provider)
 
-            for (provider in providers) {
-                val key = KeyVault.get(context, provider)
-
-                if (key.isNullOrBlank()) continue
-
-                try {
-                    return@withContext when (provider) {
-                        "gemini" -> askGemini(key, prompt)
-                        "groq" -> askGroq(key, prompt)
-                        "openrouter" -> askOpenRouter(key, prompt)
-                        else -> continue
-                    }
-                } catch (e: Exception) {
-                    errors.add("$provider: ${e.message}")
-                }
+            if (key.isNullOrBlank()) {
+                continue
             }
 
-            if (errors.isEmpty()) {
-                "No API key found. Open Settings and save an API key."
-            } else {
-                "All AI providers failed:\n\n" +
-                    errors.joinToString("\n\n")
+            try {
+                val answer = when (provider) {
+                    "gemini" -> askGemini(key, prompt)
+                    "groq" -> askGroq(key, prompt)
+                    "openrouter" -> askOpenRouter(key, prompt)
+                    else -> ""
+                }
+
+                if (answer.isNotBlank()) {
+                    return answer
+                }
+
+                errors.add("$provider: Empty response")
+
+            } catch (e: Exception) {
+                errors.add("$provider: ${e.message ?: "Unknown error"}")
             }
         }
 
-    private fun askGemini(
-        key: String,
-        prompt: String
-    ): String {
+        return if (errors.isEmpty()) {
+            "No working API key found. Please add an API key in Settings."
+        } else {
+            "All AI providers failed:\n\n" + errors.joinToString("\n\n")
+        }
+    }
 
+    private fun askGemini(key: String, prompt: String): String {
         val body = JSONObject().apply {
             put(
                 "contents",
@@ -71,62 +69,64 @@ object AiRouter {
                     )
                 )
             )
+
+            put(
+                "generationConfig",
+                JSONObject().put(
+                    "thinkingConfig",
+                    JSONObject().put("thinkingLevel", "low")
+                )
+            )
         }
 
         val request = Request.Builder()
             .url(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
             )
             .addHeader("x-goog-api-key", key)
-            .post(body.toString().toRequestBody(jsonType))
+            .addHeader("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        return client.newCall(request).execute().use { response ->
-
-            val responseText = response.body?.string().orEmpty()
+        client.newCall(request).execute().use { response ->
+            val result = response.body?.string().orEmpty()
 
             if (!response.isSuccessful) {
-                throw IOException(
-                    "HTTP ${response.code}: $responseText"
-                )
+                throw Exception("HTTP ${response.code}: $result")
             }
 
-            val result = JSONObject(responseText)
+            val json = JSONObject(result)
 
-            result.getJSONArray("candidates")
-                .getJSONObject(0)
-                .getJSONObject("content")
-                .getJSONArray("parts")
-                .getJSONObject(0)
-                .getString("text")
+            return json
+                .optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.optJSONObject(0)
+                ?.optString("text")
+                ?: throw Exception("No text returned by Gemini")
         }
     }
 
-    private fun askGroq(
-        key: String,
-        prompt: String
-    ): String {
-        return askOpenAiCompatible(
-            "https://api.groq.com/openai/v1/chat/completions",
-            key,
-            "llama-3.3-70b-versatile",
-            prompt
+    private fun askGroq(key: String, prompt: String): String {
+        return askOpenAICompatible(
+            url = "https://api.groq.com/openai/v1/chat/completions",
+            key = key,
+            model = "llama-3.3-70b-versatile",
+            prompt = prompt
         )
     }
 
-    private fun askOpenRouter(
-        key: String,
-        prompt: String
-    ): String {
-        return askOpenAiCompatible(
-            "https://openrouter.ai/api/v1/chat/completions",
-            key,
-            "meta-llama/llama-3.3-70b-instruct:free",
-            prompt
+    private fun askOpenRouter(key: String, prompt: String): String {
+        return askOpenAICompatible(
+            url = "https://openrouter.ai/api/v1/chat/completions",
+            key = key,
+            model = "meta-llama/llama-3.3-70b-instruct:free",
+            prompt = prompt
         )
     }
 
-    private fun askOpenAiCompatible(
+    private fun askOpenAICompatible(
         url: String,
         key: String,
         model: String,
@@ -144,30 +144,32 @@ object AiRouter {
                         .put("content", prompt)
                 )
             )
+
+            put("temperature", 0.7)
         }
 
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $key")
-            .post(body.toString().toRequestBody(jsonType))
+            .addHeader("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        return client.newCall(request).execute().use { response ->
-
-            val responseText = response.body?.string().orEmpty()
+        client.newCall(request).execute().use { response ->
+            val result = response.body?.string().orEmpty()
 
             if (!response.isSuccessful) {
-                throw IOException(
-                    "HTTP ${response.code}: $responseText"
-                )
+                throw Exception("HTTP ${response.code}: $result")
             }
 
-            val result = JSONObject(responseText)
+            val json = JSONObject(result)
 
-            result.getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
+            return json
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?: throw Exception("No text returned")
         }
     }
 }
