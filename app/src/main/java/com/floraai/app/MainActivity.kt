@@ -6,18 +6,28 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+
+data class ChatMessage(
+    val text: String,
+    val isUser: Boolean
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,8 +41,20 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun FloraApp() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var showSettings by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+
+    var messages by remember {
+        mutableStateOf(
+            listOf(
+                ChatMessage("Hello! I'm FLORA AI. How can I help you?", false)
+            )
+        )
+    }
+
     var geminiKey by remember { mutableStateOf("") }
     var groqKey by remember { mutableStateOf("") }
     var openRouterKey by remember { mutableStateOf("") }
@@ -60,7 +82,7 @@ fun FloraApp() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF080B12))
-                .padding(20.dp)
+                .padding(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -68,11 +90,7 @@ fun FloraApp() {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text(
-                        "FLORA AI",
-                        color = Color.White,
-                        fontSize = 26.sp
-                    )
+                    Text("FLORA AI", color = Color.White, fontSize = 25.sp)
                     Text(
                         "Your personal AI assistant",
                         color = Color.Gray,
@@ -88,7 +106,7 @@ fun FloraApp() {
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
 
             if (showSettings) {
                 Column(
@@ -97,14 +115,10 @@ fun FloraApp() {
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        "API Settings",
-                        color = Color.White,
-                        fontSize = 22.sp
-                    )
+                    Text("API Settings", color = Color.White, fontSize = 22.sp)
 
                     Text(
-                        "Add your own API keys to connect FLORA to AI providers.",
+                        "Add your own API keys to connect FLORA.",
                         color = Color.Gray
                     )
 
@@ -115,9 +129,7 @@ fun FloraApp() {
                         onValueChange = { geminiKey = it },
                         onSave = {
                             if (geminiKey.isNotBlank()) {
-                                KeyVault.save(
-                                    context, "gemini", geminiKey.trim()
-                                )
+                                KeyVault.save(context, "gemini", geminiKey.trim())
                                 geminiKey = ""
                                 geminiSaved = true
                                 status = "Gemini key saved securely!"
@@ -140,9 +152,7 @@ fun FloraApp() {
                         onValueChange = { groqKey = it },
                         onSave = {
                             if (groqKey.isNotBlank()) {
-                                KeyVault.save(
-                                    context, "groq", groqKey.trim()
-                                )
+                                KeyVault.save(context, "groq", groqKey.trim())
                                 groqKey = ""
                                 groqSaved = true
                                 status = "Groq key saved securely!"
@@ -166,8 +176,7 @@ fun FloraApp() {
                         onSave = {
                             if (openRouterKey.isNotBlank()) {
                                 KeyVault.save(
-                                    context, "openrouter",
-                                    openRouterKey.trim()
+                                    context, "openrouter", openRouterKey.trim()
                                 )
                                 openRouterKey = ""
                                 openRouterSaved = true
@@ -189,41 +198,99 @@ fun FloraApp() {
                     }
 
                     Text(
-                        "Your API keys are encrypted and stored locally on this device.",
+                        "API keys are encrypted and stored on this device.",
                         color = Color.Gray,
                         fontSize = 12.sp
                     )
                 }
             } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Color(0xFF151A25),
-                            RoundedCornerShape(18.dp)
-                        )
-                        .padding(20.dp),
-                    contentAlignment = Alignment.Center
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            "Welcome to FLORA AI 🌿",
-                            color = Color.White,
-                            fontSize = 21.sp
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "Open Settings and add your API key to get started.",
-                            color = Color.Gray
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        Button(onClick = {
-                            showSettings = true
-                        }) {
-                            Text("Open Settings")
+                    items(messages) { chat ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (chat.isUser) {
+                                Arrangement.End
+                            } else {
+                                Arrangement.Start
+                            }
+                        ) {
+                            Text(
+                                text = chat.text,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .widthIn(max = 300.dp)
+                                    .background(
+                                        if (chat.isUser) Color(0xFF39305F)
+                                        else Color(0xFF151A25),
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .padding(14.dp)
+                            )
                         }
+                    }
+
+                    if (isLoading) {
+                        item {
+                            Text(
+                                "FLORA is thinking...",
+                                color = Color(0xFF9B8CFF)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BasicTextField(
+                        value = message,
+                        onValueChange = { message = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(
+                                Color(0xFF151A25),
+                                RoundedCornerShape(20.dp)
+                            )
+                            .padding(16.dp),
+                        textStyle = TextStyle(color = Color.White),
+                        decorationBox = { inner ->
+                            if (message.isEmpty()) {
+                                Text("Message FLORA...", color = Color.Gray)
+                            }
+                            inner()
+                        }
+                    )
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Button(
+                        enabled = !isLoading && message.isNotBlank(),
+                        onClick = {
+                            val prompt = message.trim()
+                            if (prompt.isNotEmpty()) {
+                                messages = messages + ChatMessage(prompt, true)
+                                message = ""
+                                isLoading = true
+
+                                scope.launch {
+                                    val answer = try {
+                                        AiRouter.generate(context, prompt)
+                                    } catch (e: Exception) {
+                                        "Sorry, something went wrong: ${e.message}"
+                                    }
+
+                                    messages = messages + ChatMessage(answer, false)
+                                    isLoading = false
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Send")
                     }
                 }
             }
@@ -243,18 +310,14 @@ fun ApiKeyField(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Color(0xFF151A25),
-                RoundedCornerShape(16.dp)
-            )
+            .background(Color(0xFF151A25), RoundedCornerShape(16.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(title, color = Color.White, fontSize = 17.sp)
 
         Text(
-            if (saved) "Key saved on this device"
-            else "No key saved",
+            if (saved) "Key saved on this device" else "No key saved",
             color = if (saved) Color(0xFF7BE0A0) else Color.Gray,
             fontSize = 12.sp
         )
