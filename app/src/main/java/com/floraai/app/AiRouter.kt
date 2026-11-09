@@ -1,3 +1,4 @@
+
 package com.floraai.app
 
 import android.content.Context
@@ -17,11 +18,7 @@ object AiRouter {
     private val jsonType = "application/json".toMediaType()
 
     suspend fun generate(context: Context, prompt: String): String {
-        val providers = listOf(
-            "gemini",
-            "groq",
-            "openrouter"
-        )
+        val providers = listOf("gemini", "groq", "openrouter")
 
         for (provider in providers) {
             val key = KeyVault.get(context, provider) ?: continue
@@ -38,7 +35,7 @@ object AiRouter {
             }
         }
 
-        return "No working API key found. Please check your provider keys and internet connection."
+        return "No working API key found. Check your provider keys and internet connection."
     }
 
     private suspend fun askGemini(
@@ -116,8 +113,9 @@ object AiRouter {
             .post(body.toString().toRequestBody(jsonType))
             .build()
 
-        client.newCall(request).execute().use { response ->
+        return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Provider error")
+
             val result = JSONObject(response.body?.string() ?: "")
             result.getJSONArray("choices")
                 .getJSONObject(0)
